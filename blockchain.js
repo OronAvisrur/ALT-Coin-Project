@@ -19,6 +19,7 @@ class Transaction {
         this.toAddress = toAddress;
         this.amount = amount;
         this.timestamp = Date.now(); 
+        this.signature = null; 
     }
 
     /**
@@ -27,6 +28,33 @@ class Transaction {
      */
     calculateHash() {
         return SHA256(this.fromAddress + this.toAddress + this.amount + this.timestamp).toString();
+    }
+
+    /**
+     * Signs the transaction with the given signing key.
+     * @param {Object} signingKey - The elliptic key pair used to sign the transaction.
+     */
+    signTransaction(signingKey) {
+        if (signingKey.getPublic('hex') !== this.fromAddress) {
+            throw new Error('You cannot sign transactions for other wallets');
+        }
+        const hashTx = this.calculateHash();
+        const sig = signingKey.sign(hashTx, 'base64');
+        // Signature stored separately for SegWit
+        this.signature = sig.toDER('hex'); 
+    }
+
+    /**
+     * Validates the transaction.
+     * @returns {boolean} True if the transaction is valid, false otherwise.
+     */
+    isValid() {
+        if (this.fromAddress === null) return true;
+        if (!this.signature || this.signature.length === 0) {
+            throw new Error('No signature in this transaction');
+        }
+        const publicKey = ec.keyFromPublic(this.fromAddress, 'hex');
+        return publicKey.verify(this.calculateHash(), this.signature);
     }
 }
 
@@ -47,6 +75,7 @@ class Block {
         this.hash = this.calculateHash(); // Hash of the current block
         this.nonce = 0; // Nonce used for mining
         this.merkleTree = this.createMerkleTree(); // Add Merkle Tree for transactions
+        this.witnessData = this.extractWitnessData(); // SegWit: Store witness data separately
     }
 
     /**
@@ -77,6 +106,19 @@ class Block {
     }
 
     /**
+     * Validates all transactions in the block.
+     * @returns {boolean} True if all transactions are valid, false otherwise.
+     */
+    hasValidTransactions() {
+        for (const tx of this.transactions) {
+            if (!tx.isValid()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Creates a Merkle Tree for the transactions in the block.
      * @returns {MerkleTree} The Merkle Tree instance.
      */
@@ -92,6 +134,22 @@ class Block {
     getMerkleRoot() {
         return this.merkleTree.getRoot().toString('hex');
     }
+
+    /**
+     * Extracts witness data (signatures) from transactions for SegWit.
+     * @returns {Array<string|null>} List of signatures or null for unsigned transactions.
+     */
+    extractWitnessData() {
+        return this.transactions.map(tx => tx.signature || null);
+    }
+
+    /**
+     * Retrieves the witness data (signatures) stored in the block.
+     * @returns {Array<string|null>} List of signatures or null for unsigned transactions.
+     */
+    getWitnessData() {
+        return this.witnessData;
+    }
 }
 
 /**
@@ -106,6 +164,8 @@ class BlockChain {
         this.difficulty = 2; // Difficulty level for mining
         this.pendingTransactions = []; // List of pending transactions
         this.miningReward = 50; // Reward for mining a block
+        this.baseFee = 2; // Base fee for burning
+        this.minerFee = 3; // Miner reward fee
 
         // Initialize Bloom Filter
         this.bloomFilter = BloomFilter.create(1000, 0.01); 
@@ -136,12 +196,13 @@ class BlockChain {
     minePendingTransactions(miningRewardAddress) {
         // Create a reward transaction
         const rewardTx = new Transaction(null, miningRewardAddress, this.miningReward); 
-        // Add the reward transaction to pending transactions
-        this.pendingTransactions.push(rewardTx); 
+         // Add the reward transaction to pending transactions
+        this.pendingTransactions.push(rewardTx);
 
-        const block = new Block(Date.now(), this.pendingTransactions, this.getLatestBlock().hash); // Create a new block
-        // Mine the block
-        block.mineBlock(this.difficulty); 
+        // Create a new block
+        const block = new Block(Date.now(), this.pendingTransactions, this.getLatestBlock().hash); 
+         // Mine the block
+        block.mineBlock(this.difficulty);
         console.log('Block successfully mined');
 
         // Add the mined block to the chain
@@ -151,8 +212,9 @@ class BlockChain {
         for (const tx of block.transactions) {
             this.bloomFilter.insert(tx.calculateHash());
         }
-
-        this.pendingTransactions = []; // Reset the pending transactions
+        
+        // Reset the pending transactions
+        this.pendingTransactions = []; 
     }
 
     /**
@@ -163,7 +225,67 @@ class BlockChain {
         if (!transaction.fromAddress || !transaction.toAddress) {
             throw new Error('Transaction must include from and to address');
         }
+        if (!transaction.isValid()) {
+            throw new Error('Cannot add invalid transaction to the chain');
+        }
+
+        // Verify sender has enough balance
+        const senderBalance = this.getBalanceOfAddress(transaction.fromAddress);
+        const totalCost = transaction.amount + this.baseFee + this.minerFee;
+        if (senderBalance < totalCost) {
+            throw new Error('Insufficient balance for this transaction');
+        }
+
+        // Take off base fee and miner fee from sender's balance
+        transaction.amount -= this.baseFee; // Burn base fee
+        console.log(`Base fee of ${this.baseFee} coins burned.`);
+
         this.pendingTransactions.push(transaction);
+    }
+
+    /**
+     * Retrieves the balance of a specific address.
+     * @param {string} address - The address to check the balance for.
+     * @returns {number} The balance of the address.
+     */
+    getBalanceOfAddress(address) {
+        let balance = 300; 
+        for (const block of this.chain) {
+            for (const trans of block.transactions) {
+                if (trans.fromAddress === address) {
+                    
+                    balance -= trans.amount + this.baseFee + this.minerFee; 
+                }
+                if (trans.toAddress === address) {
+                    balance += trans.amount;
+                }
+            }
+        }
+        return balance;
+    }
+
+    /**
+     * Validates the blockchain by checking the hashes and links between blocks.
+     * @returns {boolean} True if the blockchain is valid, false otherwise.
+     */
+    isChainValid() {
+        for (let i = 1; i < this.chain.length; i++) {
+            const currentBlock = this.chain[i];
+            const previousBlock = this.chain[i - 1];
+
+            if (!currentBlock.hasValidTransactions()) {
+                return false;
+            }
+
+            if (currentBlock.hash !== currentBlock.calculateHash()) {
+                return false;
+            }
+
+            if (currentBlock.previousHash !== previousBlock.hash) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
