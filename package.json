@@ -1,5 +1,8 @@
 {
   "dependencies": {
-    "crypto-js": "^4.2.0"
+    "bloom-filter": "^0.2.0",
+    "crypto-js": "^4.2.0",
+    "elliptic": "^6.6.1",
+    "merkletreejs": "^0.5.2"
   }
 }

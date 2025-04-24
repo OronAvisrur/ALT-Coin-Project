@@ -312,7 +312,112 @@ class BlockChain {
     }
 }
 
-// Export the BlockChain, Block, and Transaction classes for use in other files
+/**
+ * Represents a full wallet (full node) in the blockchain.
+ */
+class FullWallet {
+     /**
+     * Creates a new FullWallet.
+     * @param {string} privateKey - The private key of the wallet.
+     */
+    constructor(privateKey) {
+        this.key = ec.keyFromPrivate(privateKey);
+        this.address = this.key.getPublic('hex');
+        this.blockchain = new BlockChain(); // Full blockchain
+    }
+
+     /**
+     * Creates a new transaction from this wallet.
+     * @param {string} toAddress - The recipient's address.
+     * @param {number} amount - The amount to transfer.
+     */
+    createTransaction(toAddress, amount) {
+        const tx = new Transaction(this.address, toAddress, amount);
+        tx.signTransaction(this.key);
+        this.blockchain.addTransaction(tx);
+    }
+
+    /**
+     * Mines the pending transactions in the blockchain.
+     */
+    mineTransactions() {
+        this.blockchain.minePendingTransactions(this.address);
+    }
+
+    /**
+     * Retrieves the balance of this wallet.
+     * @returns {number} The balance of the wallet.
+     */
+    getBalance() {
+        return this.blockchain.getBalanceOfAddress(this.address);
+    }
+}
+
+/**
+ * Represents a light wallet in the blockchain.
+ * A light wallet only stores relevant transactions and does not maintain the full blockchain.
+ */
+class LightWallet {
+    /**
+     * Creates a new LightWallet.
+     * @param {string} privateKey - The private key of the wallet.
+     */
+    constructor(privateKey) {
+        this.key = ec.keyFromPrivate(privateKey); 
+        this.address = this.key.getPublic('hex'); 
+        this.transactions = []; 
+    }
+
+    /**
+     * Receives a transaction and stores it if it is relevant to this wallet.
+     * @param {Transaction} transaction - The transaction to be received.
+     */
+    receiveTransaction(transaction) {
+        if (transaction.toAddress === this.address || transaction.fromAddress === this.address) {
+            // Store the transaction if it involves this wallet
+            this.transactions.push(transaction); 
+        }
+    }
+
+    /**
+     * Retrieves the balance of this wallet based on stored transactions.
+     * @returns {number} The balance of the wallet.
+     */
+    getBalance() {
+        let balance = 0;
+
+        for (const tx of this.transactions) {
+            if (tx.toAddress === this.address) {
+                // Add received amount
+                balance += tx.amount; 
+            }
+            if (tx.fromAddress === this.address) {
+                // Take off sent amount and fees (base fee + miner fee)
+                balance -= tx.amount + 2 + 3; 
+            }
+        }
+
+        return balance;
+    }
+
+    /**
+     * Creates a new transaction from this wallet.
+     * @param {string} toAddress - The recipient's address.
+     * @param {number} amount - The amount to transfer.
+     * @returns {Transaction} The signed transaction.
+     */
+    createTransaction(toAddress, amount) {
+        // Create a new transaction
+        const tx = new Transaction(this.address, toAddress, amount); 
+        // Sign the transaction with the wallet's private key
+        tx.signTransaction(this.key); 
+        // Return the signed transaction
+        return tx; 
+    }
+}
+
 module.exports.BlockChain = BlockChain;
 module.exports.Block = Block;
 module.exports.Transaction = Transaction;
+module.exports.FullWallet = FullWallet;
+module.exports.LightWallet = LightWallet;
