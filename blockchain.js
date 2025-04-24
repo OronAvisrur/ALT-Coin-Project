@@ -1,4 +1,6 @@
 const SHA256 = require("crypto-js/sha256");
+const EC = require('elliptic').ec;
+const ec = new EC('secp256k1');
 
 /**
  * Represents a transaction in the blockchain.
@@ -14,6 +16,41 @@ class Transaction {
         this.fromAddress = fromAddress;
         this.toAddress = toAddress;
         this.amount = amount;
+        this.timestamp = Date.now(); // Timestamp of the transaction
+    }
+
+    /**
+     * Calculates the hash of the transaction.
+     * @returns {string} The SHA256 hash of the transaction.
+     */
+    calculateHash() {
+        return SHA256(this.fromAddress + this.toAddress + this.amount + this.timestamp).toString();
+    }
+
+    /**
+     * Signs the transaction with the given signing key.
+     * @param {Object} signingKey - The elliptic key pair used to sign the transaction.
+     */
+    signTransaction(signingKey) {
+        if (signingKey.getPublic('hex') !== this.fromAddress) {
+            throw new Error('You cannot sign transactions for other wallets');
+        }
+        const hashTx = this.calculateHash();
+        const sig = signingKey.sign(hashTx, 'base64');
+        this.signature = sig.toDER('hex');
+    }
+
+    /**
+     * Validates the transaction.
+     * @returns {boolean} True if the transaction is valid, false otherwise.
+     */
+    isValid() {
+        if (this.fromAddress === null) return true; // Reward transactions are valid
+        if (!this.signature || this.signature.length === 0) {
+            throw new Error('No signature in this transaction');
+        }
+        const publicKey = ec.keyFromPublic(this.fromAddress, 'hex');
+        return publicKey.verify(this.calculateHash(), this.signature);
     }
 }
 
@@ -28,11 +65,11 @@ class Block {
      * @param {string} [previousHash=""] - The hash of the previous block in the chain.
      */
     constructor(timestamp, transactions, previousHash = "") {
-        this.previousHash = previousHash; // Hash of the previous block
-        this.timestamp = timestamp; // Timestamp of block creation
-        this.transactions = transactions; // Transactions included in the block
-        this.hash = this.calculateHash(); // Hash of the current block
-        this.nonce = 0; // Nonce used for mining
+        this.previousHash = previousHash;
+        this.timestamp = timestamp;
+        this.transactions = transactions;
+        this.hash = this.calculateHash();
+        this.nonce = 0;
     }
 
     /**
@@ -54,10 +91,23 @@ class Block {
      */
     mineBlock(difficulty) {
         while (this.hash.substring(0, difficulty) !== Array(difficulty + 1).join('0')) {
-            this.nonce++; // Increment the nonce until the hash meets the difficulty
-            this.hash = this.calculateHash(); // Recalculate the hash
+            this.nonce++;
+            this.hash = this.calculateHash();
         }
         console.log('Block Mined: ' + this.hash + ' nonce number ' + this.nonce);
+    }
+
+    /**
+     * Validates all transactions in the block.
+     * @returns {boolean} True if all transactions are valid, false otherwise.
+     */
+    hasValidTransaction() {
+        for (const tx of this.transactions) {
+            if (!tx.isValid()) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -69,10 +119,10 @@ class BlockChain {
      * Creates a new Blockchain.
      */
     constructor() {
-        this.chain = [this.createGenesisBlock()]; // Initialize the chain with the genesis block
-        this.difficulty = 5; // Difficulty level for mining
-        this.pendingTransactions = []; // List of pending transactions
-        this.miningReward = 200; // Reward for mining a block
+        this.chain = [this.createGenesisBlock()];
+        this.difficulty = 5;
+        this.pendingTransactions = [];
+        this.miningReward = 200;
     }
 
     /**
@@ -80,7 +130,7 @@ class BlockChain {
      * @returns {Block} The genesis block.
      */
     createGenesisBlock() {
-        return new Block("01/09/2009", "Genesis block", 0); // Hardcoded genesis block
+        return new Block("01/09/2009", "Genesis block", 0);
     }
 
     /**
@@ -88,7 +138,7 @@ class BlockChain {
      * @returns {Block} The latest block.
      */
     getLatestBlock() {
-        return this.chain[this.chain.length - 1]; // Return the last block in the chain
+        return this.chain[this.chain.length - 1];
     }
 
     /**
@@ -96,22 +146,28 @@ class BlockChain {
      * @param {string} miningRewardAddress - The address of the miner to receive the reward.
      */
     minePendingTransactions(miningRewardAddress) {
-        const rewardTx = new Transaction(null, miningRewardAddress, this.miningReward); // Create a reward transaction
-        this.pendingTransactions.push(rewardTx); // Add the reward transaction to pending transactions
+        const rewardTx = new Transaction(null, miningRewardAddress, this.miningReward);
+        this.pendingTransactions.push(rewardTx);
 
-        const block = new Block(Date.now(), this.pendingTransactions, this.getLatestBlock().hash); // Create a new block
-        block.mineBlock(this.difficulty); // Mine the block
+        const block = new Block(Date.now(), this.pendingTransactions, this.getLatestBlock().hash);
+        block.mineBlock(this.difficulty);
         console.log('Block successfully mined');
 
-        this.chain.push(block); // Add the mined block to the chain
-        this.pendingTransactions = []; // Reset the pending transactions
+        this.chain.push(block);
+        this.pendingTransactions = [];
     }
 
     /**
      * Adds a new transaction to the list of pending transactions.
      * @param {Transaction} transaction - The transaction to be added.
      */
-    createTransaction(transaction) {
+    addTransaction(transaction) {
+        if (!transaction.fromAddress || !transaction.toAddress) {
+            throw new Error('Transaction must include from and to address');
+        }
+        if (!transaction.isValid()) {
+            throw new Error('Cannot add an invalid transaction to the chain');
+        }
         this.pendingTransactions.push(transaction);
     }
 
@@ -126,10 +182,10 @@ class BlockChain {
         for (const block of this.chain) {
             for (const trans of block.transactions) {
                 if (trans.fromAddress === address) {
-                    balance -= trans.amount; // Deduct the amount sent
+                    balance -= trans.amount;
                 }
                 if (trans.toAddress === address) {
-                    balance += trans.amount; // Add the amount received
+                    balance += trans.amount;
                 }
             }
         }
@@ -146,17 +202,19 @@ class BlockChain {
             const currentBlock = this.chain[i];
             const previousBlock = this.chain[i - 1];
 
-            // Check if the current block's hash is valid
+            if (!currentBlock.hasValidTransaction()) {
+                return false;
+            }
+
             if (currentBlock.hash !== currentBlock.calculateHash()) {
                 return false;
             }
 
-            // Check if the current block's previous hash matches the previous block's hash
             if (currentBlock.previousHash !== previousBlock.hash) {
                 return false;
             }
         }
-        return true; // Blockchain is valid
+        return true;
     }
 }
 
