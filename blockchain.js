@@ -66,6 +66,28 @@ class BlockChain {
         newBlock.hash = newBlock.calculateHash(); // Calculate the hash of the new block
         this.chain.push(newBlock); // Add the new block to the chain
     }
+
+    /**
+     * Validates the blockchain by checking the hashes and links between blocks.
+     * @returns {boolean} True if the blockchain is valid, false otherwise.
+     */
+    isChainValid() {
+        for (let i = 1; i < this.chain.length; i++) {
+            const currentBlock = this.chain[i]; 
+            const previousBlock = this.chain[i - 1];
+
+            // Check if the current block's hash is valid
+            if (currentBlock.hash !== currentBlock.calculateHash()) {
+                return false;
+            }
+
+            // Check if the current block's previous hash matches the previous block's hash
+            if (currentBlock.previousHash !== previousBlock.hash) {
+                return false;
+            }
+        }
+        return true; 
+    }
 }
 
 // Export the BlockChain and Block classes for use in other files
