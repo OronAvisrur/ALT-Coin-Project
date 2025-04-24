@@ -17,6 +17,7 @@ class Block {
         this.timestamp = timestamp; // Timestamp of block creation
         this.data = data; // Data stored in the block
         this.hash = this.calculateHash(); // Hash of the current block
+        this.nonce = 0; // Nonce used for mining
     }
 
     /**
@@ -25,8 +26,24 @@ class Block {
      */
     calculateHash() {
         return SHA256(
-            this.index + this.previousHash + this.timestamp + JSON.stringify(this.data)
+            this.index +
+            this.previousHash +
+            this.timestamp +
+            JSON.stringify(this.data) +
+            this.nonce
         ).toString();
+    }
+
+    /**
+     * Mines the block by finding a hash that satisfies the difficulty level.
+     * @param {number} difficulty - The number of leading zeros required in the hash.
+     */
+    mineBlock(difficulty) {
+        while (this.hash.substring(0, difficulty) !== Array(difficulty + 1).join('0')) {
+            this.nonce++; // Increment the nonce until the hash meets the difficulty
+            this.hash = this.calculateHash(); // Recalculate the hash
+        }
+        console.log('Block Mined: ' + this.hash + ' nonce number ' + this.nonce);
     }
 }
 
@@ -39,6 +56,7 @@ class BlockChain {
      */
     constructor() {
         this.chain = [this.createGenesisBlock()]; // Initialize the chain with the genesis block
+        this.difficulty = 5; // Difficulty level for mining
     }
 
     /**
@@ -63,7 +81,7 @@ class BlockChain {
      */
     addBlock(newBlock) {
         newBlock.previousHash = this.getLatestBlock().hash; // Set the previous hash to the hash of the latest block
-        newBlock.hash = newBlock.calculateHash(); // Calculate the hash of the new block
+        newBlock.mineBlock(this.difficulty); // Mine the block to meet the difficulty level
         this.chain.push(newBlock); // Add the new block to the chain
     }
 
@@ -73,7 +91,7 @@ class BlockChain {
      */
     isChainValid() {
         for (let i = 1; i < this.chain.length; i++) {
-            const currentBlock = this.chain[i]; 
+            const currentBlock = this.chain[i];
             const previousBlock = this.chain[i - 1];
 
             // Check if the current block's hash is valid
@@ -86,7 +104,7 @@ class BlockChain {
                 return false;
             }
         }
-        return true; 
+        return true; // Blockchain is valid
     }
 }
 
