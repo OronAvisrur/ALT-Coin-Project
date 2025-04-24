@@ -1,21 +1,36 @@
 const SHA256 = require("crypto-js/sha256");
 
 /**
+ * Represents a transaction in the blockchain.
+ */
+class Transaction {
+    /**
+     * Creates a new Transaction.
+     * @param {string} fromAddress - The sender's address.
+     * @param {string} toAddress - The recipient's address.
+     * @param {number} amount - The amount to transfer.
+     */
+    constructor(fromAddress, toAddress, amount) {
+        this.fromAddress = fromAddress;
+        this.toAddress = toAddress;
+        this.amount = amount;
+    }
+}
+
+/**
  * Represents a single block in the blockchain.
  */
 class Block {
     /**
      * Creates a new Block.
-     * @param {number} index - The index of the block in the chain.
      * @param {string} timestamp - The timestamp of when the block was created.
-     * @param {Object} data - The data stored in the block.
+     * @param {Transaction[]} transactions - The list of transactions in the block.
      * @param {string} [previousHash=""] - The hash of the previous block in the chain.
      */
-    constructor(index, timestamp, data, previousHash = "") {
-        this.index = index; // Index of the block in the chain
+    constructor(timestamp, transactions, previousHash = "") {
         this.previousHash = previousHash; // Hash of the previous block
         this.timestamp = timestamp; // Timestamp of block creation
-        this.data = data; // Data stored in the block
+        this.transactions = transactions; // Transactions included in the block
         this.hash = this.calculateHash(); // Hash of the current block
         this.nonce = 0; // Nonce used for mining
     }
@@ -26,10 +41,9 @@ class Block {
      */
     calculateHash() {
         return SHA256(
-            this.index +
             this.previousHash +
             this.timestamp +
-            JSON.stringify(this.data) +
+            JSON.stringify(this.transactions) +
             this.nonce
         ).toString();
     }
@@ -57,6 +71,8 @@ class BlockChain {
     constructor() {
         this.chain = [this.createGenesisBlock()]; // Initialize the chain with the genesis block
         this.difficulty = 5; // Difficulty level for mining
+        this.pendingTransactions = []; // List of pending transactions
+        this.miningReward = 200; // Reward for mining a block
     }
 
     /**
@@ -64,7 +80,7 @@ class BlockChain {
      * @returns {Block} The genesis block.
      */
     createGenesisBlock() {
-        return new Block(0, "01/09/2009", "Genesis block", 0); // Hardcoded genesis block
+        return new Block("01/09/2009", "Genesis block", 0); // Hardcoded genesis block
     }
 
     /**
@@ -76,13 +92,49 @@ class BlockChain {
     }
 
     /**
-     * Adds a new block to the blockchain.
-     * @param {Block} newBlock - The new block to be added.
+     * Mines the pending transactions and adds a new block to the blockchain.
+     * @param {string} miningRewardAddress - The address of the miner to receive the reward.
      */
-    addBlock(newBlock) {
-        newBlock.previousHash = this.getLatestBlock().hash; // Set the previous hash to the hash of the latest block
-        newBlock.mineBlock(this.difficulty); // Mine the block to meet the difficulty level
-        this.chain.push(newBlock); // Add the new block to the chain
+    minePendingTransactions(miningRewardAddress) {
+        const rewardTx = new Transaction(null, miningRewardAddress, this.miningReward); // Create a reward transaction
+        this.pendingTransactions.push(rewardTx); // Add the reward transaction to pending transactions
+
+        const block = new Block(Date.now(), this.pendingTransactions, this.getLatestBlock().hash); // Create a new block
+        block.mineBlock(this.difficulty); // Mine the block
+        console.log('Block successfully mined');
+
+        this.chain.push(block); // Add the mined block to the chain
+        this.pendingTransactions = []; // Reset the pending transactions
+    }
+
+    /**
+     * Adds a new transaction to the list of pending transactions.
+     * @param {Transaction} transaction - The transaction to be added.
+     */
+    createTransaction(transaction) {
+        this.pendingTransactions.push(transaction);
+    }
+
+    /**
+     * Retrieves the balance of a specific address.
+     * @param {string} address - The address to check the balance for.
+     * @returns {number} The balance of the address.
+     */
+    getBalanceOfAddress(address) {
+        let balance = 0;
+
+        for (const block of this.chain) {
+            for (const trans of block.transactions) {
+                if (trans.fromAddress === address) {
+                    balance -= trans.amount; // Deduct the amount sent
+                }
+                if (trans.toAddress === address) {
+                    balance += trans.amount; // Add the amount received
+                }
+            }
+        }
+
+        return balance;
     }
 
     /**
@@ -108,6 +160,7 @@ class BlockChain {
     }
 }
 
-// Export the BlockChain and Block classes for use in other files
+// Export the BlockChain, Block, and Transaction classes for use in other files
 module.exports.BlockChain = BlockChain;
 module.exports.Block = Block;
+module.exports.Transaction = Transaction;
