@@ -207,64 +207,101 @@ class Block {
  * Represents the blockchain.
  */
 class BlockChain {
+    /**
+     * Creates a new BlockChain.
+     */
     constructor() {
+        // Initialize the blockchain with the genesis block
         this.chain = [this.createGenesisBlock()];
+        // Set the mining difficulty
         this.difficulty = 1;
+        // Set the mining reward
         this.miningReward = 50;
+        // Set the base fee for transactions
         this.baseFee = 2;
+        // Set the miner fee for transactions
         this.minerFee = 3;
-        this.mempoolPath = path.join(__dirname, 'transactions.json'); // Path to mempool file
+        // Path to the mempool file for storing pending transactions
+        this.mempoolPath = path.join(__dirname, 'transactions.json');
     }
 
-    // Create the first block of the blockchain
+    /**
+     * Creates the first block of the blockchain (genesis block).
+     * @returns {Block} The genesis block.
+     */
     createGenesisBlock() {
+        // Return a new block with no transactions and a previous hash of "0"
         return new Block("01/09/2009", [], [], "0");
     }
 
-    // Get the most recently added block
+    /**
+     * Retrieves the most recently added block in the blockchain.
+     * @returns {Block} The latest block.
+     */
     getLatestBlock() {
+        // Return the last block in the chain
         return this.chain[this.chain.length - 1];
     }
 
-    // Helper to load mempool from file
+    /**
+     * Loads the mempool from the file.
+     * @returns {Object} The mempool containing pending transactions and signatures.
+     */
     loadMempool() {
         try {
+            // Read the mempool file and parse it as JSON
             const data = fs.readFileSync(this.mempoolPath, 'utf-8');
             return JSON.parse(data);
         } catch {
+            // Return an empty mempool if the file does not exist or is empty
             return { transactions: [], signatures: [] };
         }
     }
 
-    // Helper to save mempool to file
+    /**
+     * Saves the mempool to the file.
+     * @param {Object} mempool - The mempool to save.
+     */
     saveMempool(mempool) {
+        // Write the mempool to the file as JSON
         fs.writeFileSync(this.mempoolPath, JSON.stringify(mempool, null, 2));
     }
 
-    // Add a transaction and its signature to the pending pool
+    /**
+     * Adds a transaction and its signature to the pending pool.
+     * @param {Transaction} transaction - The transaction to add.
+     * @param {Object} senderKey - The elliptic key pair of the sender.
+     */
     addTransaction(transaction, senderKey) {
+        // Ensure the transaction includes both from and to addresses
         if (!transaction.fromAddress || !transaction.toAddress) {
             throw new Error("Transaction must include from and to address");
         }
-    
+
+        // Calculate the hash of the transaction
         const hash = transaction.calculateHash();
+        // Sign the transaction hash with the sender's private key
         const signature = senderKey.sign(hash, 'base64').toDER('hex');
-    
+
+        // Validate the transaction using the signature
         if (!transaction.isValid(signature)) {
             throw new Error("Cannot add invalid transaction to the chain");
         }
-    
+
+        // Get the sender's balance
         const senderBalance = this.getBalanceOfAddress(transaction.fromAddress);
+        // Calculate the total cost of the transaction (amount + fees)
         const totalCost = transaction.amount + this.baseFee + this.minerFee;
-    
+
+        // Ensure the sender has sufficient balance for the transaction
         if (senderBalance < totalCost) {
             throw new Error("Insufficient balance for this transaction " + senderBalance + " < " + totalCost);
         }
-    
-        // Load current mempool
+
+        // Load the current mempool
         const mempool = this.loadMempool();
-    
-        // Serialize transaction (custom if needed)
+
+        // Serialize the transaction for storage in the mempool
         const txData = {
             fromAddress: transaction.fromAddress,
             toAddress: transaction.toAddress,
@@ -272,57 +309,76 @@ class BlockChain {
             timestamp: transaction.timestamp,
             hash: transaction.calculateHash()
         };
-    
+
+        // Add the transaction and its signature to the mempool
         mempool.transactions.push(txData);
         mempool.signatures.push(signature);
-    
-        // Save updated mempool
+
+        // Save the updated mempool to the file
         this.saveMempool(mempool);
     }
 
-    // Mine the pending transactions and create a new block
+    /**
+     * Mines the pending transactions and creates a new block.
+     * @param {string} miningRewardAddress - The address of the miner to receive the reward.
+     * @returns {Block} The newly mined block.
+     */
     minePendingTransactions(miningRewardAddress) {
+        // Load the current mempool
         const mempool = this.loadMempool();
-        
-        // Take up to 3 transactions and signatures
 
+        // Take up to 3 transactions from the mempool
         const transactionsToMine = mempool.transactions.slice(0, 3).map(tx =>
             tx instanceof Transaction
                 ? tx
                 : new Transaction(tx.fromAddress, tx.toAddress, tx.amount, tx.timestamp)
         );
+        // Take up to 3 signatures from the mempool
         const signaturesToInclude = mempool.signatures.slice(0, 3);
-    
+
+        // Calculate the total priority fees for the transactions
         let totalPriorityFees = 0;
         for (const tx of transactionsToMine) {
             totalPriorityFees += this.minerFee;
         }
-    
+
+        // Calculate the miner's reward (mining reward + priority fees)
         const minerReward = this.miningReward + totalPriorityFees;
+        // Create a reward transaction for the miner
         const rewardTx = new Transaction(null, miningRewardAddress, minerReward);
+        // Add the reward transaction to the transactions to mine
         transactionsToMine.push(rewardTx);
+        // Add a null signature for the reward transaction
         signaturesToInclude.push(null);
-        
+
+        // Create a new block with the transactions and signatures
         const block = new Block(Date.now(), transactionsToMine, signaturesToInclude, this.getLatestBlock().hash);
+        // Mine the block by solving the proof-of-work puzzle
         block.mineBlock(this.difficulty);
-    
+
         console.log("Block successfully mined!");
+        // Add the mined block to the blockchain
         this.chain.push(block);
-    
-        // Remove mined transactions from mempool
+
+        // Remove the mined transactions and signatures from the mempool
         mempool.transactions = mempool.transactions.slice(3);
         mempool.signatures = mempool.signatures.slice(3);
+        // Save the updated mempool to the file
         this.saveMempool(mempool);
-    
+
         return block;
     }
 
-    // Get current balance of an address
+    /**
+     * Retrieves the current balance of a specific address.
+     * @param {string} address - The address to check the balance for.
+     * @returns {number} The balance of the specified address.
+     */
     getBalanceOfAddress(address) {
-        // starting balance
-        let balance = 300; 
-    
-        // Process all confirmed transactions in the chain
+        // Initialize the balance with a starting value
+        let balance = 300;
+
+        // Process all confirmed transactions in the blockchain
         for (const block of this.chain) {
             for (const tx of block.transactions) {
                 if (tx.fromAddress === address) {
@@ -333,12 +389,10 @@ class BlockChain {
                 }
             }
         }
-    
-        // Process all pending transactions in the mempool
-        // loads mempool.json
-        const mempool = this.loadMempool(); 
 
-        if(mempool !== null) {           
+        // Process all pending transactions in the mempool
+        const mempool = this.loadMempool();
+        if (mempool !== null) {
             for (const tx of mempool.transactions) {
                 if (tx.fromAddress === address) {
                     balance -= tx.amount + this.baseFee + this.minerFee;
@@ -348,18 +402,23 @@ class BlockChain {
                 }
             }
         }
-    
+
         return balance;
     }
 
-    // Validate the entire blockchain
+    /**
+     * Validates the entire blockchain.
+     * @returns {boolean} True if the blockchain is valid, false otherwise.
+     */
     isChainValid() {
         for (let i = 1; i < this.chain.length; i++) {
             const currentBlock = this.chain[i];
             const previousBlock = this.chain[i - 1];
 
+            // Retrieve the full transactions for the current block
             const fullTransactions = this.getFullTransactions(currentBlock);
 
+            // Validate the transactions and block hashes
             if (!currentBlock.hasValidTransactions(fullTransactions)) return false;
             if (currentBlock.hash !== currentBlock.calculateHash()) return false;
             if (currentBlock.previousHash !== previousBlock.hash) return false;
@@ -368,27 +427,34 @@ class BlockChain {
         return true;
     }
 
-    // Use Bloom filter to find a transaction in the blockchain
+    /**
+     * Searches for a transaction in the blockchain using the Bloom Filter.
+     * @param {string} hash - The hash of the transaction to search for.
+     * @returns {Transaction|null} The transaction if found, or null if not found.
+     */
     searchTransaction(hash) {
         for (const block of this.chain) {
             // Check if the transaction might exist in the block using the Bloom Filter
             if (block.bloomFilter.test(hash)) {
-                
                 for (const tx of block.transactions) {
                     if (tx.calculateHash() === hash) {
-                        // Found the transaction
-                        return tx; 
+                        // Return the found transaction
+                        return tx;
                     }
                 }
             }
         }
 
-        // Transaction not found
-        return null; 
+        // Return null if the transaction is not found
+        return null;
     }
 
-    // Get all pending transactions
+    /**
+     * Retrieves all pending transactions from the mempool.
+     * @returns {Array<Object>} The list of pending transactions.
+     */
     getPendingTransactions() {
+        // Load the mempool and return the transactions
         const mempool = this.loadMempool();
         return mempool.transactions;
     }
@@ -396,87 +462,155 @@ class BlockChain {
 
 /**
  * Represents a full wallet (full node) in the blockchain.
+ * A full wallet maintains the entire blockchain and processes transactions.
  */
 class FullWallet {
+    /**
+     * Creates a new FullWallet.
+     * @param {string} privateKey - The private key of the wallet.
+     * @param {BlockChain} blockchain - The blockchain instance associated with the wallet.
+     */
     constructor(privateKey, blockchain) {
-        this.key = ec.keyFromPrivate(privateKey);
-        this.address = this.key.getPublic('hex');
-        this.blockchain = blockchain;
+        this.key = ec.keyFromPrivate(privateKey); // Generate key pair from the private key
+        this.address = this.key.getPublic('hex'); // Public key (wallet address)
+        this.blockchain = blockchain; // The blockchain instance
     }
 
+    /**
+     * Creates and submits a transaction to the blockchain.
+     * @param {string} toAddress - The recipient's address.
+     * @param {number} amount - The amount to transfer.
+     */
     makeTransaction(toAddress, amount) {
-        const transaction = new Transaction(this.address, toAddress, amount);
-        this.blockchain.addTransaction(transaction, this.key);
+        // Create a new transaction
+        const transaction = new Transaction(this.address, toAddress, amount); 
+        // Add the transaction to the blockchain
+        this.blockchain.addTransaction(transaction, this.key); 
     }
 
+    /**
+     * Retrieves the balance of a specific address.
+     * @param {string} address - The address to check the balance for.
+     * @returns {number} The balance of the specified address.
+     */
     getBalanceOf(address) {
-        return this.blockchain.getBalanceOfAddress(address);
+        return this.blockchain.getBalanceOfAddress(address); // Get the balance from the blockchain
     }
 
+    /**
+     * Processes a transaction received from a light wallet.
+     * @param {Transaction} transaction - The transaction to process.
+     * @param {Object} senderKey - The elliptic key pair of the sender.
+     */
     receiveTransactionFromLightWallet(transaction, senderKey) {
-
-        const balance = this.blockchain.getBalanceOfAddress(transaction.fromAddress);
-        const totalCost = transaction.amount + 2 + 3;
-
-        console.log(`Transaction from ${transaction.fromAddress} to ${transaction.toAddress} for ${totalCost}`);
+        // Get the sender's balance
+        const balance = this.blockchain.getBalanceOfAddress(transaction.fromAddress); 
+        // Calculate the total cost (amount + fees)
+        const totalCost = transaction.amount + 2 + 3; 
 
         if (balance < totalCost) {
             console.log(`Insufficient funds: Has ${balance}, needs ${totalCost}`);
-            return;
+            // Reject the transaction if the sender has insufficient funds
+            return; 
         }
 
-        this.blockchain.addTransaction(transaction, senderKey);
+        // Add the transaction to the blockchain
+        this.blockchain.addTransaction(transaction, senderKey); 
         console.log("Transaction from light wallet accepted.");
     }
 
+    /**
+     * Mines all pending transactions in the blockchain.
+     */
     minePendingTransactions() {
-        this.blockchain.minePendingTransactions(this.address);
+        // Mine pending transactions and reward the wallet
+        this.blockchain.minePendingTransactions(this.address); 
     }
 
+    /**
+     * Retrieves the balance of this wallet.
+     * @returns {number} The balance of the wallet.
+     */
     getBalance() {
-        return this.blockchain.getBalanceOfAddress(this.address);
+        return this.blockchain.getBalanceOfAddress(this.address); 
     }
 }
 
 /**
  * Represents a light wallet in the blockchain.
+ * A light wallet only stores relevant transactions and interacts with a full wallet for blockchain operations.
  */
 class LightWallet {
+    /**
+     * Creates a new LightWallet.
+     * @param {string} privateKey - The private key of the wallet.
+     */
     constructor(privateKey) {
-        this.key = ec.keyFromPrivate(privateKey);
-        this.address = this.key.getPublic('hex');
-        this.transactions = []; 
+        this.key = ec.keyFromPrivate(privateKey); // Generate key pair from the private key
+        this.address = this.key.getPublic('hex'); // Public key (wallet address)
+        this.transactions = []; // Stores only relevant transactions
     }
 
+    /**
+     * Sends a transaction via a full wallet.
+     * @param {string} toAddress - The recipient's address.
+     * @param {number} amount - The amount to transfer.
+     * @param {FullWallet} fullWallet - The full wallet to process the transaction.
+     */
     sendTransactionViaFullWallet(toAddress, amount, fullWallet) {
-        fullWallet.receiveTransactionFromLightWallet(new Transaction(this.address, toAddress, amount), this.key);
+        // Create a new transaction
+        const transaction = new Transaction(this.address, toAddress, amount); 
+        // Send the transaction to the full wallet
+        fullWallet.receiveTransactionFromLightWallet(transaction, this.key); 
     }
 
+    /**
+     * Synchronizes a transaction with the light wallet.
+     * @param {Transaction} transaction - The transaction to sync.
+     */
     syncTransaction(transaction) {
-        this.transactions.push(transaction);
+        // Add the transaction to the wallet's transaction list
+        this.transactions.push(transaction); 
     }
 
+    /**
+     * Checks if a specific transaction exists in the wallet.
+     * @param {Transaction} transaction - The transaction to check.
+     * @returns {boolean} True if the transaction exists, false otherwise.
+     */
     hasTransaction(transaction) {
         for (const tx of this.transactions) {
             if (tx.calculateHash() === transaction.calculateHash()) {
-                return true;
+                // Transaction found
+                return true; 
             }
         }
-        return false;
+        // Transaction not found
+        return false; 
     }
 
+    /**
+     * Validates all transactions in the light wallet against the full wallet's blockchain.
+     * @param {FullWallet} fullWallet - The full wallet to validate against.
+     * @returns {boolean} True if all transactions are valid, false otherwise.
+     */
     valideteWalletTransactions(fullWallet) {
         // Load the mempool from the full wallet
-        const signaturePool = fullWallet.blockchain.loadMempool();
+        const signaturePool = fullWallet.blockchain.loadMSignatures(); 
+
         for (const tx of this.transactions) {
-            const txSignature = signaturePool.signatures.find(sig => sig === tx.calculateHash());
-            // Check if the transaction exists in the full wallet's blockchain
-            if (!tx.isValid(sig)) {
-                console.log("Invalid transaction found in light wallet: ", tx);
-                return false;
+            // Find the transaction signature
+            const txSignature = signaturePool.signatures.find(sig => sig === tx.calculateHash()); 
+
+            // Check if the transaction is valid in the full wallet's blockchain
+            if (!tx.isValid(txSignature)) {
+                // Invalid transaction found
+                return false; 
             }
         }
-        return true;
+
+        // All transactions are valid
+        return true; 
     }
 }
 
