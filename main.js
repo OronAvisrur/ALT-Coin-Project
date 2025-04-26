@@ -1,132 +1,110 @@
-const { FullWallet, LightWallet, Transaction } = require('./blockchain.js');
+const { FullWallet, LightWallet, BlockChain } = require('./blockchain.js');
 const EC = require('elliptic').ec;
-const fs = require('fs'); // For reading the JSON file
 const ec = new EC('secp256k1');
 
-// Full Wallet (Full Node)
-const fullWalletKey = ec.keyFromPrivate('bb5343b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de783');
-const fullWallet = new FullWallet(fullWalletKey.getPrivate('hex'));
+// === Blockchain network ===
+const network = new BlockChain()
 
-// Light Wallets
-const lightWallet1Key = ec.keyFromPrivate('c1a3b3b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de784');
-const lightWallet1 = new LightWallet(lightWallet1Key.getPrivate('hex'));
 
-const lightWallet2Key = ec.keyFromPrivate('d2b4b3b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de785');
-const lightWallet2 = new LightWallet(lightWallet2Key.getPrivate('hex'));
+// === Full Wallet ===
+const fullWallet = new FullWallet('bb5343b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de783', network);
 
-// Load transactions from JSON file
-const transactions = JSON.parse(fs.readFileSync('./transactions.json', 'utf8'));
+// === Light Wallets ===
+const lightWallet1 = new LightWallet('c1a3b3b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de784');
+const lightWallet2 = new LightWallet('d2b4b3b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de785');
 
-// Add transactions to the Mem-Pool
-for (const txData of transactions) {
-    const tx = new Transaction(txData.fromAddress, txData.toAddress, txData.amount);
-
-    // Sign the transaction if it has a valid sender address
-    if (txData.fromAddress) {
-        const senderKey = ec.keyFromPrivate(getPrivateKeyForAddress(txData.fromAddress));
-        tx.signTransaction(senderKey);
-    }
-
-    fullWallet.blockchain.addTransaction(tx);
-}
-
-// Mine transactions in blocks
-while (fullWallet.blockchain.pendingTransactions.length > 0) {
-    fullWallet.mineTransactions();
-}
-
-// Light Wallets receive transactions
-console.log('\n--- Light Wallets receive transactions ---');
-for (const block of fullWallet.blockchain.chain) {
-    for (const tx of block.transactions) {
-        lightWallet1.receiveTransaction(tx);
-        lightWallet2.receiveTransaction(tx);
-    }
-}
-
-// Display Balances
+// === Display Balances ===
 console.log('\n--- Wallet Balances ---');
 console.log('Full Wallet Balance:', fullWallet.getBalance());
-console.log('Light Wallet 1 Balance:', lightWallet1.getBalance());
-console.log('Light Wallet 2 Balance:', lightWallet2.getBalance());
+console.log('Light Wallet 1 Balance:', fullWallet.getBalanceOf(lightWallet1.address));
+console.log('Light Wallet 2 Balance:', fullWallet.getBalanceOf(lightWallet2.address));
 
-// Calculate and display final parameters
-const totalCoinsInNetwork = calculateTotalCoins(fullWallet.blockchain);
-const totalCoinsMined = calculateTotalMined(fullWallet.blockchain);
-const totalCoinsBurned = calculateTotalBurned(fullWallet.blockchain);
+// === Initilaize mem-pool JSON file ===
+lightWallet1.sendTransactionViaFullWallet(lightWallet2.address, 10, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(fullWallet.address, 5, fullWallet);
+fullWallet.makeTransaction(lightWallet1.address, 7);
 
-console.log('\n--- Final Parameters ---');
-console.log('Total Coins in Network:', totalCoinsInNetwork);
-console.log('Total Coins Mined:', totalCoinsMined);
-console.log('Total Coins Burned:', totalCoinsBurned);
+lightWallet2.sendTransactionViaFullWallet(lightWallet1.address, 6, fullWallet);
+lightWallet1.sendTransactionViaFullWallet(fullWallet.address, 1, fullWallet);
+fullWallet.makeTransaction(lightWallet2.address, 5);
 
-console.log('\n--- Wallet Address ---\n');
-console.log('Full Wallet Address:', fullWallet.address);
-console.log('Light Wallet 1 Address:', lightWallet1.address);
-console.log('Light Wallet 2 Address:', lightWallet2.address);
+lightWallet1.sendTransactionViaFullWallet(lightWallet2.address, 9, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(lightWallet1.address, 5, fullWallet);
+fullWallet.makeTransaction(lightWallet1.address, 8);
 
-// Helper function to get the private key for a given address
-function getPrivateKeyForAddress(address) {
-    if (address === fullWallet.address) {
-        return 'bb5343b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de783';
-    } else if (address === lightWallet1.address) {
-        return 'c1a3b3b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de784';
-    } else if (address === lightWallet2.address) {
-        return 'd2b4b3b70388a19927e3c5cb0e1322eba50acd284f5476235487fd2c7c9de785';
-    } else {
-        throw new Error(`No private key found for address: ${address}`);
+lightWallet1.sendTransactionViaFullWallet(fullWallet.address, 2, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(fullWallet.address, 1, fullWallet);
+fullWallet.makeTransaction(lightWallet2.address, 3);
+
+lightWallet1.sendTransactionViaFullWallet(lightWallet2.address, 8, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(lightWallet1.address, 11, fullWallet);
+fullWallet.makeTransaction(lightWallet1.address, 6);
+
+lightWallet1.sendTransactionViaFullWallet(lightWallet2.address, 7, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(fullWallet.address, 9, fullWallet);
+fullWallet.makeTransaction(lightWallet2.address, 3);
+
+lightWallet1.sendTransactionViaFullWallet(fullWallet.address, 13, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(lightWallet1.address, 11, fullWallet);
+fullWallet.makeTransaction(lightWallet1.address, 2);
+
+lightWallet1.sendTransactionViaFullWallet(lightWallet2.address, 16, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(lightWallet1.address, 14, fullWallet);
+fullWallet.makeTransaction(lightWallet2.address, 1);
+
+lightWallet1.sendTransactionViaFullWallet(fullWallet.address, 7, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(fullWallet.address, 6, fullWallet);
+fullWallet.makeTransaction(lightWallet1.address, 1);
+
+fullWallet.makeTransaction(lightWallet2.address, 14);
+lightWallet1.sendTransactionViaFullWallet(fullWallet.address, 7, fullWallet);
+lightWallet2.sendTransactionViaFullWallet(lightWallet1.address, 5, fullWallet);
+
+
+
+// === Mine All Transactions ===
+while (fullWallet.blockchain.getPendingTransactions().length > 0) {
+    console.log('\n--- Mining Pending Transactions ---');
+    fullWallet.minePendingTransactions();
+}
+
+// Light Wallets sync transactions
+for (const block of fullWallet.blockchain.chain) {
+    for (const tx of block.transactions) {
+        if (tx.fromAddress === lightWallet1.address) {
+            lightWallet1.syncTransaction(tx);
+        } else if (tx.fromAddress === lightWallet2.address) {
+            lightWallet2.syncTransaction(tx);
+        }
     }
 }
 
-// Calculate total coins in the network
-function calculateTotalCoins(blockchain) {
-    let totalCoins = 0;
-    const addresses = new Set();
+// === Display Balances ===
+console.log('\n--- Wallet Balances ---');
+console.log('Full Wallet Balance:', fullWallet.getBalance());
+console.log('Light Wallet 1 Balance:', fullWallet.getBalanceOf(lightWallet1.address));
+console.log('Light Wallet 2 Balance:', fullWallet.getBalanceOf(lightWallet2.address));
 
-    // Collect all unique addresses
-    for (const block of blockchain.chain) {
-        for (const tx of block.transactions) {
-            addresses.add(tx.fromAddress);
-            addresses.add(tx.toAddress);
+// === Display blockchain details ===
+let totalCoinsInNetwork = 0;
+let totalMinedCoins = 0;
+let totalBurnedCoins = 0;
+
+// Sum up from the blockchain
+for (const block of network.chain) {
+    for (const tx of block.transactions) {
+        // If it's a miner reward transaction
+        if (tx.fromAddress === null) {
+            totalMinedCoins += tx.amount;
+            totalCoinsInNetwork += tx.amount;
+        } else {
+            totalCoinsInNetwork -= network.baseFee; // Burn base fee
+            totalBurnedCoins += network.baseFee;
         }
     }
-
-    // Sum balances of all addresses
-    for (const address of addresses) {
-        if (address) {
-            totalCoins += blockchain.getBalanceOfAddress(address);
-        }
-    }
-
-    return totalCoins;
 }
 
-// Calculate total coins mined in the network
-function calculateTotalMined(blockchain) {
-    let totalMined = 0;
-
-    for (const block of blockchain.chain) {
-        for (const tx of block.transactions) {
-            if (tx.fromAddress === null) {
-                totalMined += tx.amount; // Mining reward
-            }
-        }
-    }
-
-    return totalMined;
-}
-
-// Calculate total coins burned in the network
-function calculateTotalBurned(blockchain) {
-    let totalBurned = 0;
-
-    for (const block of blockchain.chain) {
-        for (const tx of block.transactions) {
-            if (tx.fromAddress !== null) {
-                totalBurned += blockchain.baseFee; // Base fee is burned
-            }
-        }
-    }
-
-    return totalBurned;
-}
+console.log("\n=== Final Network Stats ===");
+console.log(`Total coins in network: ${totalCoinsInNetwork}`);
+console.log(`Total coins mined: ${totalMinedCoins}`);
+console.log(`Total coins burned: ${totalBurnedCoins}`);
